@@ -1,0 +1,15 @@
+CC = @CC@
+VERSION = @VERSION@
+CFLAGS = @CFLAGS@
+
+all: mpd-hotplug-bin
+
+mpd-hotplug-bin: mpd-hotplug.c
+	$(CC) $(CFLAGS) -DVERSION=\"$(VERSION)\" mpd-hotplug.c -o mpd-hotplug
+
+clean:
+	rm -f mpd-hotplug
+
+distclean:
+	rm -f mpd-hotplug config.* Makefile
+
