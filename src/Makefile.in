@@ -45,7 +45,7 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
-am_mpdhotplug_OBJECTS = mphotplug.$(OBJEXT)
+am_mpdhotplug_OBJECTS = mpdhotplug.$(OBJEXT)
 mpdhotplug_OBJECTS = $(am_mpdhotplug_OBJECTS)
 mpdhotplug_LDADD = $(LDADD)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
@@ -144,7 +144,7 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-mpdhotplug_SOURCES = mphotplug.c
+mpdhotplug_SOURCES = mpdhotplug.c
 all: all-am
 
 .SUFFIXES:
@@ -226,7 +226,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mphotplug.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mpdhotplug.Po@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<

@@ -1,2 +1,2 @@
 bin_PROGRAMS = mpdhotplug
-mpdhotplug_SOURCES = mphotplug.c
+mpdhotplug_SOURCES = mpdhotplug.c
