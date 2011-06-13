@@ -92,7 +92,7 @@ void init_mpd(mpdhotplug_state *state)
  */
 void start_mpd()
 {
-    logprint("starte_mpd");
+    logprint("start_mpd");
 }
 
 int main(int argc, char **argv) 
