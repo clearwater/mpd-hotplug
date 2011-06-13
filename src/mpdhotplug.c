@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <string.h>
 #include "mpd/client.h"
@@ -25,7 +26,9 @@ typedef struct mpdhotplug_state
     char *device_path;
     char *config_path;
     char *config_template;
+    char *config_file;
     char *mpd_host; 
+    char *mpd_bin;
     unsigned mpd_port;
     unsigned mpd_timeout;
     struct mpd_connection *mpd_connection;
@@ -42,6 +45,15 @@ void logprint(const char *fmt, ...)
     vfprintf(stderr, fmt, argp);
     va_end(argp);
     fprintf(stderr, "\n");
+}
+
+void log_mpd_print(mpdhotplug_state *state, const char *message)
+{
+    switch (mpd_connection_get_error(state->mpd_connection)) {
+        // HMM - for now just a single case? 
+        default:
+            logprint("%s: %s", message, mpd_connection_get_error_message(state->mpd_connection));
+    }
 }
 
 /*----------------------------------------------------------------------
@@ -81,8 +93,8 @@ void expand(const char *src_name, const char *dst_name, const char *find, const 
     size_t replacelen = strlen(replace);
     const char *next = find;
 
-    while (!feof(src)) {
-        int c = fgetc(src);
+    int c;
+    while (c=fgetc(src), !feof(src)) {
         if (c==*next) {
             // matched
             next++;
@@ -120,22 +132,13 @@ mpdhotplug_state *alloc_state()
     state->device_path = "/tmp/media/sda1";  // HACK
     state->config_path = "/tmp/media/sda1/.mpd";
     state->config_template = "templates/mpd.config";
+    state->mpd_bin = "/data/chumby/mpd/mpd-0.16.2/src/mpd";
     state->mpd_host = "localhost";
+    state->config_file = "/tmp/media/sda1/.mpd/mpd.config";
     state->mpd_port = 6600;
     state->mpd_timeout = 0;  // default timeout
     state->mpd_connection = NULL;
     return state;
-}
-
-/*----------------------------------------------------------------------
-  
-  ----------------------------------------------------------------------*/
-void free_state(mpdhotplug_state *state)
-{
-    if (state->mpd_connection) {
-        mpd_connection_free(state->mpd_connection);
-    }
-    free(state);
 }
 
 /*----------------------------------------------------------------------
@@ -152,6 +155,23 @@ void connect_mpd(mpdhotplug_state *state)
         }
     }
 }
+
+void disconnect_mpd(mpdhotplug_state *state)
+{
+    if (state->mpd_connection) {
+        mpd_connection_free(state->mpd_connection);
+        state->mpd_connection = NULL;
+    }
+}
+/*----------------------------------------------------------------------
+  
+  ----------------------------------------------------------------------*/
+void free_state(mpdhotplug_state *state)
+{
+    disconnect_mpd(state);
+    free(state);
+}
+
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
@@ -164,8 +184,9 @@ void stop_mpd(mpdhotplug_state *state)
         logprint("Error killing mpd daemon - maybe already gone?");
     } else {
         logprint("Sent kill to mpd daemon.");
+        disconnect_mpd(state);
     }
-    // TODO - confirm dead
+    // TODO - wait for daemon to die.
 }
 
 
@@ -198,9 +219,9 @@ void checkdir(const char *path, mode_t mode)
  * Create or update the .mpd directory on the target device.
  * 
  */
-void init_mpd(mpdhotplug_state *state)
+void configure_mpd(mpdhotplug_state *state)
 {
-    logprint("init_mpd");
+    logprint("configure_mpd");
 
     // create config dir (if necessary)
     checkdir(state->config_path, 0777);
@@ -211,17 +232,49 @@ void init_mpd(mpdhotplug_state *state)
     free(playlist_path);
 
     // create configuration file
-    char *config_file = path_join_alloc(state->config_path, "mpd.config");
-    expand(state->config_template, config_file, "%ROOT%", state->device_path);
-    free(config_file);
+    expand(state->config_template, state->config_file, "%ROOT%", state->device_path);
 }
 
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void start_mpd()
+void start_mpd(mpdhotplug_state *state)
 {
     logprint("start_mpd");
+    pid_t pid = fork();
+    if (pid == 0) {
+        // child
+        char * const argv[] = {state->mpd_bin, state->config_file, NULL};
+        execv(state->mpd_bin, argv);
+    } else {
+        int status;
+        if (wait(&status) != pid) {
+            logprint("Error checking new daemon process");
+        }
+        if (!WIFEXITED(status) || WEXITSTATUS(status)!=0) { 
+            logprint("Error starting new daemon process");
+        }
+    }
+}
+
+/*----------------------------------------------------------------------
+  
+  ----------------------------------------------------------------------*/
+void reindex_mpd(mpdhotplug_state *state)
+{
+    connect_mpd(state);
+    if (!mpd_run_update(state->mpd_connection, NULL)) {
+        log_mpd_print(state, "Error updating music database");
+    }
+    if (!mpd_run_clear(state->mpd_connection)) {
+        log_mpd_print(state, "Error clearing playlist");
+    }
+    if (!mpd_run_add(state->mpd_connection, "")) {
+        log_mpd_print(state, "Error updating current playlist");
+    }
+    if (!mpd_run_play(state->mpd_connection)) {
+        log_mpd_print(state, "Error starting playing");
+    }
 }
 
 /*----------------------------------------------------------------------
@@ -232,8 +285,9 @@ int main(int argc, char **argv)
     mpdhotplug_state *state;
     state = alloc_state();
     stop_mpd(state);
-    init_mpd(state);
+    configure_mpd(state);
     start_mpd(state);
+    reindex_mpd(state);
     free_state(state);
     return 0;
 }
