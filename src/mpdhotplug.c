@@ -29,6 +29,7 @@ typedef struct mpdhotplug_state
     char *config_file;
     char *mpd_host; 
     char *mpd_bin;
+    char *process_name;
     unsigned mpd_port;
     unsigned mpd_timeout;
     struct mpd_connection *mpd_connection;
@@ -134,6 +135,7 @@ mpdhotplug_state *alloc_state()
     state->config_template = "templates/mpd.config";
     state->mpd_bin = "/data/chumby/mpd/mpd-0.16.2/src/mpd";
     state->mpd_host = "localhost";
+    state->process_name = "(mpd daemon)";
     state->config_file = "/tmp/media/sda1/.mpd/mpd.config";
     state->mpd_port = 6600;
     state->mpd_timeout = 0;  // default timeout
@@ -146,14 +148,27 @@ mpdhotplug_state *alloc_state()
   ----------------------------------------------------------------------*/
 void connect_mpd(mpdhotplug_state *state)
 {
+    int retries = 5;
+    int delay = 1000; // ms
+    enum mpd_error status;
     if (!state->mpd_connection) {
-        state->mpd_connection = mpd_connection_new(state->mpd_host,
-                                                   state->mpd_port,
-                                                   state->mpd_timeout);
-        if (!state->mpd_connection) {
-            error("Connection to %s:%d failed", state->mpd_host, state->mpd_port);
+        while (retries-- > 0) {
+            state->mpd_connection = mpd_connection_new(state->mpd_host,
+                                                       state->mpd_port,
+                                                       state->mpd_timeout);
+            status = mpd_connection_get_error(state->mpd_connection);
+            if (status != MPD_ERROR_SUCCESS) {
+                logprint("Connection to %s:%d failed, %d retries", state->mpd_host, state->mpd_port, retries);
+            } else {
+                break;
+            }
+            usleep(delay * 1000);  // units are microseconds
+        }
+        if (status != MPD_ERROR_SUCCESS) {
+            log_mpd_print(state, "Error connecting");
         }
     }
+
 }
 
 void disconnect_mpd(mpdhotplug_state *state)
@@ -182,6 +197,7 @@ void stop_mpd(mpdhotplug_state *state)
     bool ok = mpd_send_command(state->mpd_connection, "kill", NULL);
     if (!ok) {
         logprint("Error killing mpd daemon - maybe already gone?");
+        disconnect_mpd(state);
     } else {
         logprint("Sent kill to mpd daemon.");
         disconnect_mpd(state);
@@ -240,20 +256,27 @@ void configure_mpd(mpdhotplug_state *state)
   ----------------------------------------------------------------------*/
 void start_mpd(mpdhotplug_state *state)
 {
+    int retries = 5;
+    int delay = 100;  // ms
     logprint("start_mpd");
-    pid_t pid = fork();
-    if (pid == 0) {
-        // child
-        char * const argv[] = {state->mpd_bin, state->config_file, NULL};
-        execv(state->mpd_bin, argv);
-    } else {
-        int status;
-        if (wait(&status) != pid) {
-            logprint("Error checking new daemon process");
+    while (retries-->0) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            // child process
+            char * const argv[] = {state->process_name, state->config_file, NULL};
+            execv(state->mpd_bin, argv);
+        } else {
+            // parent process - waits for daemon to detach
+            int status;
+            if (wait(&status) != pid) {
+                logprint("Error checking new daemon process");
+            } else if (!WIFEXITED(status) || WEXITSTATUS(status)!=0) { 
+                logprint("Error starting new daemon process");
+            } else {
+                break;  // succeeded
+            }
         }
-        if (!WIFEXITED(status) || WEXITSTATUS(status)!=0) { 
-            logprint("Error starting new daemon process");
-        }
+        usleep(delay * 1000);  // units are microseconds
     }
 }
 
