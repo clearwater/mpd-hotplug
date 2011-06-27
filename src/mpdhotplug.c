@@ -1,38 +1,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 #include "mpd/client.h"
 
 /*----------------------------------------------------------------------
- * Options: 
- *  --dir <path> : specify a directory for mpd control files.  
- *                 Could be a tmpfs for example.  By default the
- *                 mpd control files are stored in a directory
- *                 called .mpd in the root directory of the mounted
- *                 media.
- *
  * References:
  * Automake: http://www.gnu.org/s/hello/manual/automake/Creating-amhello.html#Creating-amhello
  * MPD command protocol: http://www.musicpd.org/doc/protocol/
  ----------------------------------------------------------------------*/
 
+typedef enum {
+  MODE_NONE,
+  MODE_ADD,
+  MODE_REMOVE
+} mode_t;
+
+
 typedef struct mpdhotplug_state
 {
-    char *device_path;
-    char *config_path;
-    char *config_template;
-    char *config_file;
-    char *mpd_host; 
-    char *mpd_bin;
-    char *process_name;
-    unsigned mpd_port;
-    unsigned mpd_timeout;
-    struct mpd_connection *mpd_connection;
+  char *config_dir;
+  char *config_file;
+  char *pid_file;
+  char *mpd_host; 
+  char *mpd_bin;
+  unsigned mpd_port;
+  unsigned mpd_timeout;
+  struct mpd_connection *mpd_connection;
 } mpdhotplug_state;
 
 /*----------------------------------------------------------------------
@@ -71,6 +71,11 @@ void error(const char *fmt, ...)
     exit(-1);
 }
 
+void usage(const char *argv0)
+{
+  error("Usage: %s [add|remove] <udevpath>", argv0);
+}
+
 char *path_join_alloc(const char *a, const char *b)
 {
     size_t alen = strlen(a);
@@ -83,130 +88,75 @@ char *path_join_alloc(const char *a, const char *b)
     return c;
 }
 
-void expand(const char *src_name, const char *dst_name, const char *find, const char *replace)
-{
-    FILE *src = fopen(src_name, "r");
-    if (!src) error("Unable to open template source %s", src_name);
-    FILE *dst = fopen(dst_name, "w");
-    if (!dst) error("Unable to open template destination %s", dst_name);
-
-    size_t findlen = strlen(find);
-    size_t replacelen = strlen(replace);
-    const char *next = find;
-
-    int c;
-    while (c=fgetc(src), !feof(src)) {
-        if (c==*next) {
-            // matched
-            next++;
-            if (next-find == findlen) {
-                // matched entire string
-                fwrite(replace, 1, replacelen, dst);
-                next = find;
-            }
-        } else {
-            // did not match 
-            if (next!=find) {
-                // flush partial match
-                fwrite(find, 1, next-find, dst);
-                next = find;
-            }
-            fputc(c, dst);
-        }
-    }
-    // flush final partial match
-    if (next!=find) {
-        fwrite(find, 1, next-find, dst);
-    }
-    
-    fclose(src);
-    fclose(dst);
-}
-
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-#define ALLOC(t) (t*)malloc(sizeof(t))
-mpdhotplug_state *alloc_state()
+bool mpd_connect(mpdhotplug_state *state)
 {
-    mpdhotplug_state *state = ALLOC(mpdhotplug_state);
-    state->device_path = "/tmp/media/sda1";  // HACK
-    state->config_path = "/tmp/media/sda1/.mpd";
-    state->config_template = "templates/mpd.config";
-    state->mpd_bin = "/data/chumby/mpd/mpd-0.16.2/src/mpd";
-    state->mpd_host = "localhost";
-    state->process_name = "(mpd daemon)";
-    state->config_file = "/tmp/media/sda1/.mpd/mpd.config";
-    state->mpd_port = 6600;
-    state->mpd_timeout = 0;  // default timeout
-    state->mpd_connection = NULL;
-    return state;
-}
-
-/*----------------------------------------------------------------------
-  
-  ----------------------------------------------------------------------*/
-void connect_mpd(mpdhotplug_state *state)
-{
-    int retries = 5;
-    int delay = 1000; // ms
-    enum mpd_error status;
-    if (!state->mpd_connection) {
-        while (retries-- > 0) {
-            state->mpd_connection = mpd_connection_new(state->mpd_host,
-                                                       state->mpd_port,
-                                                       state->mpd_timeout);
-            status = mpd_connection_get_error(state->mpd_connection);
-            if (status != MPD_ERROR_SUCCESS) {
-                logprint("Connection to %s:%d failed, %d retries", state->mpd_host, state->mpd_port, retries);
-            } else {
-                break;
-            }
-            usleep(delay * 1000);  // units are microseconds
-        }
-        if (status != MPD_ERROR_SUCCESS) {
-            log_mpd_print(state, "Error connecting");
-        }
+  int attempts = 5;
+  int delay = 1000; // ms
+  enum mpd_error status;
+  if (!state->mpd_connection) {
+    while (attempts-- > 0) {
+      state->mpd_connection = mpd_connection_new(state->mpd_host,
+						 state->mpd_port,
+						 state->mpd_timeout);
+      status = mpd_connection_get_error(state->mpd_connection);
+      if (status != MPD_ERROR_SUCCESS) {
+	logprint("Connection to %s:%d failed, %d attempts", state->mpd_host, state->mpd_port, attempts);
+	return true;
+      } else {
+	break;
+      }
+      usleep(delay * 1000);  // units are microseconds
     }
-
+    if (status != MPD_ERROR_SUCCESS) {
+      log_mpd_print(state, "Error connecting");
+    }
+    return false;
+  } else {
+    return true;
+  }
 }
 
-void disconnect_mpd(mpdhotplug_state *state)
+void mpd_disconnect(mpdhotplug_state *state)
 {
     if (state->mpd_connection) {
         mpd_connection_free(state->mpd_connection);
         state->mpd_connection = NULL;
     }
 }
+
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void free_state(mpdhotplug_state *state)
+#define ALLOC(t) (t*)malloc(sizeof(t))
+
+mpdhotplug_state *state_alloc()
 {
-    disconnect_mpd(state);
+    mpdhotplug_state *state = ALLOC(mpdhotplug_state);
+    state->config_dir = "/media/ram/mpd"; // "/media/ram/mpd";
+    state->pid_file = path_join_alloc(state->config_dir, "mpd.pid");  // LEAKED
+    state->config_file = path_join_alloc(state->config_dir, "mpd.conf"); // LEAKED
+    state->mpd_host = "localhost";
+    state->mpd_bin = "mpd";
+    state->mpd_port = 6600;
+    state->mpd_timeout = 0;  // default timeout
+    state->mpd_connection = NULL;
+    return state;
+}
+
+void state_free(mpdhotplug_state *state)
+{
+    mpd_disconnect(state);
     free(state);
 }
 
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void stop_mpd(mpdhotplug_state *state)
-{
-    logprint("stop_mpd");
-    connect_mpd(state);
-    bool ok = mpd_send_command(state->mpd_connection, "kill", NULL);
-    if (!ok) {
-        logprint("Error killing mpd daemon - maybe already gone?");
-        disconnect_mpd(state);
-    } else {
-        logprint("Sent kill to mpd daemon.");
-        disconnect_mpd(state);
-    }
-    // TODO - wait for daemon to die.
-}
 
-
-void checkdir(const char *path, mode_t mode)
+void make_dir(const char *path, mode_t mode)
 {
     struct stat statbuf;
     int i = stat (path, &statbuf);
@@ -228,6 +178,11 @@ void checkdir(const char *path, mode_t mode)
     }
 }
 
+void ms_sleep(int time_ms)
+{
+  usleep(time_ms * 1000);
+}
+
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
@@ -235,35 +190,55 @@ void checkdir(const char *path, mode_t mode)
  * Create or update the .mpd directory on the target device.
  * 
  */
-void configure_mpd(mpdhotplug_state *state)
+void mpd_write_conf(mpdhotplug_state *state, const char *music_directory)
 {
     logprint("configure_mpd");
 
     // create config dir (if necessary)
-    checkdir(state->config_path, 0777);
+    make_dir(state->config_dir, 0777);
 
-    // create playlist dir 
-    char *playlist_path = path_join_alloc(state->config_path, "playlists");
-    checkdir(playlist_path, 0777);
-    free(playlist_path);
-
-    // create configuration file
-    expand(state->config_template, state->config_file, "%ROOT%", state->device_path);
+    // 
+    FILE *config_file = fopen(state->config_file, "w");
+    if (config_file) {
+      fprintf(config_file, 
+	      "port                    \"6600\"\n"
+	      "music_directory         \"%s\"\n"
+	      "db_file                 \"%s/mpd.db\"\n"
+	      "log_file                \"%s/mpd.log\"\n"
+	      "pid_file                \"%s/mpd.pid\"\n"
+	      "state_file              \"%s/mpd.state\"\n"
+	      "\n"
+	      "audio_output {\n"
+	      "        type        \"alsa\"\n"
+	      "        name        \"Default Audio\"\n"
+	      "        mixer_type  \"software\"\n"
+	      "}\n",
+	      music_directory,
+	      state->config_dir,
+	      state->config_dir,
+	      state->config_dir,
+	      state->config_dir);
+      fclose(config_file);
+    } else {
+      error("Could not create %s", state->config_file);
+    }
 }
 
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void start_mpd(mpdhotplug_state *state)
+void mpd_start(mpdhotplug_state *state)
 {
-    int retries = 5;
-    int delay = 100;  // ms
+    int attempts = 5;
+    int delay = 200;  // ms
+
     logprint("start_mpd");
-    while (retries-->0) {
+    while (attempts-->0) {
         pid_t pid = fork();
         if (pid == 0) {
             // child process
-            char * const argv[] = {state->process_name, state->config_file, NULL};
+            char * const argv[] = {state->mpd_bin, state->config_file, NULL};
+	    logprint("launch %s %s",state->mpd_bin, state->config_file);
             execv(state->mpd_bin, argv);
         } else {
             // parent process - waits for daemon to detach
@@ -276,42 +251,184 @@ void start_mpd(mpdhotplug_state *state)
                 break;  // succeeded
             }
         }
-        usleep(delay * 1000);  // units are microseconds
+        ms_sleep(delay);  // units are microseconds
     }
 }
 
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void reindex_mpd(mpdhotplug_state *state)
+bool mpd_play(mpdhotplug_state *state)
 {
-    connect_mpd(state);
-    if (!mpd_run_update(state->mpd_connection, NULL)) {
-        log_mpd_print(state, "Error updating music database");
+  int attempts = 10;
+  int delay = 250;
+  while (attempts-- > 0) {
+
+    if (mpd_connect(state)) {
+      logprint("Connected");
+      if (mpd_run_update(state->mpd_connection, NULL)) {
+	logprint("updating");
+	if (mpd_run_clear(state->mpd_connection)) {
+	  logprint("cleared");
+	  if (mpd_run_add(state->mpd_connection, "")) {
+	    logprint("added");
+	    if (mpd_run_play(state->mpd_connection)) {
+	      logprint("playing");
+	      return true;
+	    } else {
+	      log_mpd_print(state, "Error playing");
+	    }
+	  } else {
+	    log_mpd_print(state, "Error adding");
+	  }
+	} else {
+	  log_mpd_print(state, "Error clearing");
+	}
+      } else {
+	log_mpd_print(state, "Error updating");
+      }
+      mpd_disconnect(state);
+      ms_sleep(delay);
     }
-    if (!mpd_run_clear(state->mpd_connection)) {
-        log_mpd_print(state, "Error clearing playlist");
-    }
-    if (!mpd_run_add(state->mpd_connection, "")) {
-        log_mpd_print(state, "Error updating current playlist");
-    }
-    if (!mpd_run_play(state->mpd_connection)) {
-        log_mpd_print(state, "Error starting playing");
-    }
+  }
+  return false;
 }
 
+/*----------------------------------------------------------------------
+  
+  ----------------------------------------------------------------------*/
+pid_t pid_read(char *filename)
+{
+  int buflen = 256;
+  pid_t pid = 0;
+  char buf[buflen];
+  FILE *pidfile = fopen(filename, "r");
+  if (pidfile) {
+    int len = fread(buf, 1, buflen, pidfile);
+    if (len>0) {
+      pid = atoi(buf);
+    }
+    fclose(pidfile);
+  }
+  logprint("pid from %s is %d",buf, pid);
+  return pid;
+}
+
+bool pid_kill(pid_t pid, int signal)
+{
+  int attempts = 4;
+  int delay = 250; // ms
+  while (attempts-- > 0) {
+    logprint("Sending signal %d to process %d",signal,pid);
+    if (-1 == kill(pid, signal) && errno == ESRCH) {
+      logprint("Process %d has exited",signal,pid);
+      return true;  // gone
+    }
+    logprint("Error %d",errno);
+    usleep(delay * 1000);  // units are microseconds      
+  }
+  logprint("Process %d refused to die",signal,pid);
+  return false;
+}
+
+
+// argv will contain a string like this:
+//   add /devices/platform/stmp3xxx-usb/fsl-ehci/usb1/1-1/1-1.3/1-1.3:1.0/host4/target4:0:0/4:0:0:0/block/sda/sda1
+// and we return the last component formatted like this:
+//   /media/sda1
+char *mount_name(const char *devname)
+{
+  const char *p = devname + strlen(devname);
+  while (p > devname && p[-1]!='/') p--;
+  int plen = strlen(p);
+  char *mount = (char*)malloc(plen + 8);  // '/media/+<p>+\0
+  sprintf(mount, "/media/%s", p);
+  return mount;
+}
+
+bool mount_wait(const char *mount)
+{
+  int attempts = 10;
+  int timeout = 500; // ms
+  int mountlen = strlen(mount);
+
+  while (attempts-- > 0) {
+    // looking for this line: /dev/sda1 /media/sda1 vfat rw,relatime,fmask=0022,dmask=0022,codepage=cp437,iocharset=iso8859-1 0 0
+    FILE *file = fopen("/proc/mounts","r");
+    int bufsize = 8096;
+    char buf[bufsize];
+    if (file) {
+      while (fgets(buf, bufsize, file)) {
+	// find the 2nd word which is the mount point
+	char *p0 = buf;  // p0 is start of 2nd word
+	while (*p0 && *p0!=' ') p0++;
+	if (*p0) p0++;
+	char *p1 = p0+1; // p1 is char after 2nd word
+	while (*p1 && *p1!=' ') p1++;
+	// printf("%s:%d\n", p0,p1-p0);
+	if (p1-p0==mountlen && !strncmp(mount, p0, mountlen)) {
+	  return true;
+	}
+      }
+      fclose(file);
+    } else {
+      error("Could not open /proc/mounts");
+    }
+    ms_sleep(timeout);
+  }
+  return false;
+}
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
 int main(int argc, char **argv) 
 {
-    mpdhotplug_state *state;
-    state = alloc_state();
-    stop_mpd(state);
-    configure_mpd(state);
-    start_mpd(state);
-    reindex_mpd(state);
-    free_state(state);
-    return 0;
+  mode_t mode = MODE_NONE;
+
+  if (argc != 3) {
+    usage(argv[0]);
+  }
+
+  if (!strcmp(argv[1],"add")) {
+    mode = MODE_ADD;
+  } else if (!strcmp(argv[1],"remove")) {
+    mode = MODE_REMOVE;
+  } else {
+    usage(argv[0]);
+  }
+
+  mpdhotplug_state *state;
+  state = state_alloc();
+
+  // create working directory if necessary
+  make_dir(state->config_dir, 0777);
+
+  // if process is running, signal it and wait for it to exit
+  int pid = pid_read(state->pid_file);
+  if (pid>0) {
+    pid_kill(pid, SIGINT);
+  }
+
+  if (mode == MODE_ADD) {
+    // determine which file system was added
+    // argv = binname action device
+    char *mount = mount_name(argv[2]);
+    //mount = "/dev/shm";  // HACK REMOVE ME
+    if (!mount_wait(mount)) {
+      error("Timeout waiting for %s to be mounted", mount);
+    }
+
+    // generate mpd config file
+    mpd_write_conf(state, mount);
+    // restart the daemon
+    mpd_start(state);
+    // connect, rescan and reload
+    mpd_play(state);
+  }
+  
+  // cleanup
+  state_free(state);
+
+  return 0;
 }
 
