@@ -139,11 +139,11 @@ void mpd_disconnect(mpdhotplug_state *state)
 mpdhotplug_state *state_alloc()
 {
     mpdhotplug_state *state = ALLOC(mpdhotplug_state);
-    state->config_dir = "/media/ram/mpd"; // "/media/ram/mpd";
+    state->config_dir = "/media/ram/mpd";
     state->pid_file = path_join_alloc(state->config_dir, "mpd.pid");  // LEAKED
     state->config_file = path_join_alloc(state->config_dir, "mpd.conf"); // LEAKED
-    state->mpd_host = "localhost";
-    state->mpd_bin = "mpd";
+    state->mpd_host = "localhost"; 
+    state->mpd_bin = "/usr/bin/mpd";
     state->mpd_port = 6600;
     state->mpd_timeout = 0;  // default timeout
     state->mpd_connection = NULL;
@@ -231,32 +231,34 @@ void mpd_write_conf(mpdhotplug_state *state, const char *music_directory)
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void mpd_start(mpdhotplug_state *state)
+result_t mpd_start(mpdhotplug_state *state)
 {
-    int attempts = 5;
-    int delay = 200;  // ms
+  int attempts = 5;
+  int delay = 200;  // ms
 
-    logprint("start_mpd");
-    while (attempts-->0) {
-        pid_t pid = fork();
-        if (pid == 0) {
-            // child process
-            char * const argv[] = {state->mpd_bin, state->config_file, NULL};
-	    logprint("launch %s %s",state->mpd_bin, state->config_file);
-            execv(state->mpd_bin, argv);
-        } else {
-            // parent process - waits for daemon to detach
-            int status;
-            if (wait(&status) != pid) {
-                logprint("Error checking new daemon process");
-            } else if (!WIFEXITED(status) || WEXITSTATUS(status)!=0) { 
-                logprint("Error starting new daemon process");
-            } else {
-                break;  // succeeded
-            }
-        }
-        ms_sleep(delay);  // units are microseconds
+  logprint("start_mpd");
+  while (attempts-->0) {
+    pid_t pid = fork();
+    if (pid == 0) {
+      // child process
+      char * const argv[] = {state->mpd_bin, state->config_file, NULL};
+      logprint("launch %s %s",state->mpd_bin, state->config_file);
+      execv(state->mpd_bin, argv);
+      error("Failed to start daemon: error %d", errno);
+    } else {
+      // parent process - waits for daemon to detach
+      int status;
+      if (wait(&status) != pid) {
+	logprint("Error checking new daemon process");
+      } else if (!WIFEXITED(status) || WEXITSTATUS(status)!=0) { 
+	logprint("Error starting new daemon process");
+      } else {
+	return RESULT_SUCCESS;  // succeeded
+      }
     }
+    ms_sleep(delay);  // units are microseconds
+  }
+  return RESULT_FAILURE;
 }
 
 /*----------------------------------------------------------------------
@@ -268,6 +270,7 @@ result_t mpd_play(mpdhotplug_state *state)
   int delay = 250;
   while (attempts-- > 0) {
 
+    ms_sleep(delay);
     if (mpd_connect(state)) {
       logprint("Connected");
       mpd_sendCommandListBegin(state->mpd_connection);
@@ -283,7 +286,6 @@ result_t mpd_play(mpdhotplug_state *state)
       if (result == RESULT_SUCCESS) {
 	return result;
       }
-      ms_sleep(delay);
     }
   }
   return RESULT_FAILURE;
@@ -319,8 +321,10 @@ result_t pid_kill(pid_t pid, int signal)
       logprint("Process %d has exited",signal,pid);
       return RESULT_SUCCESS;  // gone
     }
-    logprint("Error %d",errno);
-    usleep(delay * 1000);  // units are microseconds      
+    if (errno != 0) {
+      logprint("Error %d killing daemon",errno);
+    }
+    ms_sleep(delay);
   }
   logprint("Process %d refused to die",signal,pid);
   return RESULT_FAILURE;
@@ -399,6 +403,7 @@ int main(int argc, char **argv)
   make_dir(state->config_dir, 0777);
 
   // if process is running, signal it and wait for it to exit
+  logprint("Killing old daemon if there is one...");
   int pid = pid_read(state->pid_file);
   if (pid>0) {
     pid_kill(pid, SIGINT);
@@ -408,16 +413,21 @@ int main(int argc, char **argv)
     // determine which file system was added
     // argv = binname action device
     char *mount = mount_name(argv[2]);
-    //mount = "/dev/shm";  // HACK REMOVE ME
+    mount = "/dev/shm";  // HACK REMOVE ME
+    logprint("Waiting for %s to be mounted", mount);
     if (RESULT_FAILURE == mount_wait(mount)) {
       error("Timeout waiting for %s to be mounted", mount);
     }
 
+    logprint("Generating config file");
     // generate mpd config file
     mpd_write_conf(state, mount);
     // restart the daemon
-    mpd_start(state);
+    if (RESULT_FAILURE == mpd_start(state)) {
+      error("Failure starting daemon process");
+    }
     // connect, rescan and reload
+    logprint("Bumping player to start playing");
     mpd_play(state);
   }
   
