@@ -277,7 +277,7 @@ result_t mpd_play(mpdhotplug_state *state)
       mpd_sendUpdateCommand(state->mpd_connection, NULL);
       mpd_sendClearCommand(state->mpd_connection);
       mpd_sendAddCommand(state->mpd_connection, "");
-      mpd_sendNextCommand(state->mpd_connection);
+      mpd_sendPlayCommand(state->mpd_connection, -1); // not sure why -1 is default
       mpd_sendCommandListEnd(state->mpd_connection);
       mpd_log_error(state);
       mpd_finishCommand(state->mpd_connection);
