@@ -327,8 +327,8 @@ result_t mpd_play(mpdhotplug_state *state)
   ----------------------------------------------------------------------*/
 result_t mpd_wait_for_update(mpdhotplug_state *state)
 {
-  int attempts = 30;
-  int delay = 250;
+  int attempts = 200;
+  int delay = 1000;
   while (attempts-- > 0) {
 
     ms_sleep(delay);
@@ -421,7 +421,7 @@ char *mount_name(const char *devname)
 
 result_t mount_wait(const char *mount)
 {
-  int attempts = 20;
+  int attempts = 200;
   int timeout = 1000; // ms
   int mountlen = strlen(mount);
 
