@@ -487,7 +487,7 @@ int main(int argc, char **argv)
     // determine which file system was added
     // argv = binname action device
     char *mount = mount_name(argv[2]);
-    mount = "/dev/shm";  // HACK REMOVE ME
+    //mount = "/dev/shm";  // HACK REMOVE ME
     logprint("Waiting for %s to be mounted", mount);
     if (RESULT_FAILURE == mount_wait(mount)) {
       error("Timeout waiting for %s to be mounted", mount);
