@@ -213,9 +213,6 @@ void mpd_write_conf(mpdhotplug_state *state, const char *music_directory)
 	      "pid_file                \"%s/mpd.pid\"\n"
 	      "state_file              \"%s/mpd.state\"\n"
 	      "\n"
-	      "random 1\n"
-	      "repeat 1\n"
-	      "\n"
 	      "audio_output {\n"
 	      "        type        \"alsa\"\n"
 	      "        name        \"Default Audio\"\n"
@@ -310,6 +307,14 @@ result_t mpd_play(mpdhotplug_state *state)
 
       logprint("send add");
       mpd_sendAddCommand(state->mpd_connection, "");
+      mpd_finishCommand(state->mpd_connection);
+      mpd_log_error(state);
+
+      mpd_sendRepeatCommand(state->mpd_connection, 1);
+      mpd_finishCommand(state->mpd_connection);
+      mpd_log_error(state);
+
+      mpd_sendRandomCommand(state->mpd_connection, 1);
       mpd_finishCommand(state->mpd_connection);
       mpd_log_error(state);
 
