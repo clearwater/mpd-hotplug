@@ -421,8 +421,8 @@ char *mount_name(const char *devname)
 
 result_t mount_wait(const char *mount)
 {
-  int attempts = 10;
-  int timeout = 500; // ms
+  int attempts = 20;
+  int timeout = 1000; // ms
   int mountlen = strlen(mount);
 
   while (attempts-- > 0) {
