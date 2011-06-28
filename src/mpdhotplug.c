@@ -43,7 +43,7 @@ typedef struct mpdhotplug_state
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-void logprint(const char *fmt, ...)
+result_t logprint(const char *fmt, ...)
 {
     va_list argp;
     fprintf(stderr, "log: ");
@@ -51,6 +51,7 @@ void logprint(const char *fmt, ...)
     vfprintf(stderr, fmt, argp);
     va_end(argp);
     fprintf(stderr, "\n");
+    return RESULT_SUCCESS;
 }
 
 result_t mpd_log_error(mpdhotplug_state *state)
@@ -98,7 +99,7 @@ char *path_join_alloc(const char *a, const char *b)
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-int mpd_connect(mpdhotplug_state *state)
+result_t mpd_connect(mpdhotplug_state *state)
 {
   int attempts = 5;
   int delay = 1000; // ms
@@ -145,7 +146,7 @@ mpdhotplug_state *state_alloc()
     state->mpd_host = "localhost"; 
     state->mpd_bin = "/usr/bin/mpd";
     state->mpd_port = 6600;
-    state->mpd_timeout = 0;  // default timeout
+    state->mpd_timeout = 2;  // default timeout in seconds
     state->mpd_connection = NULL;
     return state;
 }
@@ -264,6 +265,36 @@ result_t mpd_start(mpdhotplug_state *state)
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
+result_t mpd_start_update(mpdhotplug_state *state)
+{
+  int attempts = 10;
+  int delay = 250;
+
+  while (attempts-- > 0) {
+
+    ms_sleep(delay);
+    if (mpd_connect(state) == RESULT_SUCCESS) {
+      logprint("Connected");
+      result_t result = RESULT_SUCCESS;
+
+      logprint("send update");
+      mpd_sendUpdateCommand(state->mpd_connection, "");
+      mpd_finishCommand(state->mpd_connection);
+      result |= mpd_log_error(state);
+
+      logprint("send clear");
+      mpd_sendClearCommand(state->mpd_connection);
+      mpd_finishCommand(state->mpd_connection);
+      result |= mpd_log_error(state);
+
+      if (result == RESULT_SUCCESS) {
+	return result;
+      }
+    }
+  }
+  return RESULT_FAILURE;
+}
+
 result_t mpd_play(mpdhotplug_state *state)
 {
   int attempts = 10;
@@ -271,23 +302,66 @@ result_t mpd_play(mpdhotplug_state *state)
   while (attempts-- > 0) {
 
     ms_sleep(delay);
-    if (mpd_connect(state)) {
+    if (mpd_connect(state) == RESULT_SUCCESS) {
       logprint("Connected");
-      mpd_sendCommandListBegin(state->mpd_connection);
-      mpd_sendUpdateCommand(state->mpd_connection, NULL);
-      mpd_sendClearCommand(state->mpd_connection);
+
+      logprint("send add");
       mpd_sendAddCommand(state->mpd_connection, "");
+      mpd_finishCommand(state->mpd_connection);
+      mpd_log_error(state);
+
+      logprint("send play");
       mpd_sendPlayCommand(state->mpd_connection, -1); // not sure why -1 is default
-      mpd_sendCommandListEnd(state->mpd_connection);
       mpd_log_error(state);
       mpd_finishCommand(state->mpd_connection);
-      result_t result = mpd_log_error(state);
-      mpd_disconnect(state);
-      if (result == RESULT_SUCCESS) {
-	return result;
+      if (RESULT_SUCCESS == mpd_log_error(state)) {
+	return RESULT_SUCCESS;
       }
     }
   }
+  return RESULT_FAILURE;
+}
+
+/*----------------------------------------------------------------------
+  
+  ----------------------------------------------------------------------*/
+result_t mpd_wait_for_update(mpdhotplug_state *state)
+{
+  int attempts = 30;
+  int delay = 250;
+  while (attempts-- > 0) {
+
+    ms_sleep(delay);
+    if (mpd_connect(state) == RESULT_SUCCESS) {
+      logprint("Connected");
+
+      mpd_Status *status = NULL;
+      
+      while (status == NULL) {
+	logprint("getting status");
+	mpd_sendStatusCommand(state->mpd_connection);
+	mpd_log_error(state);
+	ms_sleep(100);
+
+	status = mpd_getStatus(state->mpd_connection);
+	mpd_log_error(state);
+	ms_sleep(100);
+
+	mpd_finishCommand(state->mpd_connection);
+	mpd_log_error(state);
+	ms_sleep(100);
+      }
+
+      result_t result = status->updatingDb == 0 ? RESULT_SUCCESS : RESULT_FAILURE;
+
+      mpd_freeStatus(status);
+
+      if (result == RESULT_SUCCESS) {
+	logprint("No update is running.");
+	return result;
+      }
+    }
+  } 
   return RESULT_FAILURE;
 }
 
@@ -314,7 +388,7 @@ pid_t pid_read(char *filename)
 result_t pid_kill(pid_t pid, int signal)
 {
   int attempts = 4;
-  int delay = 250; // ms
+  int delay = 500; // ms
   while (attempts-- > 0) {
     logprint("Sending signal %d to process %d",signal,pid);
     if (-1 == kill(pid, signal) && errno == ESRCH) {
@@ -413,7 +487,7 @@ int main(int argc, char **argv)
     // determine which file system was added
     // argv = binname action device
     char *mount = mount_name(argv[2]);
-    //mount = "/dev/shm";  // HACK REMOVE ME
+    mount = "/dev/shm";  // HACK REMOVE ME
     logprint("Waiting for %s to be mounted", mount);
     if (RESULT_FAILURE == mount_wait(mount)) {
       error("Timeout waiting for %s to be mounted", mount);
@@ -426,9 +500,14 @@ int main(int argc, char **argv)
     if (RESULT_FAILURE == mpd_start(state)) {
       error("Failure starting daemon process");
     }
+    ms_sleep(1500);  // give it some time to start
     // connect, rescan and reload
-    logprint("Bumping player to start playing");
-    mpd_play(state);
+    logprint("Starting update");
+    mpd_start_update(state) && logprint("error starting update");
+    logprint("Waiting for update to complete");
+    mpd_wait_for_update(state) && logprint("error waiting for update");
+    logprint("Starting music");
+    mpd_play(state) && logprint("error playing");
   }
   
   // cleanup
