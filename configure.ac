@@ -7,10 +7,12 @@ AC_CONFIG_FILES([
  src/Makefile
 ])
 
-dnl Check for libmpdclient 2.0                                                  
-PKG_CHECK_MODULES([LIBMPDCLIENT], [libmpdclient >= 2.0],,
-        [AC_MSG_ERROR([libmpdclient2 is required])])
-
 AC_SUBST(AM_CFLAGS)
+
+dnl ---------------------------------------------------------------------------
+dnl Mandatory Libraries
+dnl ---------------------------------------------------------------------------
+PKG_CHECK_MODULES([GLIB], [glib-2.0 >= 2.12 gthread-2.0],,
+		[AC_MSG_ERROR([GLib 2.12 is required])])
 
 AC_OUTPUT

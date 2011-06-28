@@ -8,13 +8,18 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
-#include "mpd/client.h"
+#include "libmpdclient.h"
 
 /*----------------------------------------------------------------------
  * References:
  * Automake: http://www.gnu.org/s/hello/manual/automake/Creating-amhello.html#Creating-amhello
  * MPD command protocol: http://www.musicpd.org/doc/protocol/
  ----------------------------------------------------------------------*/
+
+typedef enum {
+  RESULT_SUCCESS = 0,
+  RESULT_FAILURE = 1
+} result_t;
 
 typedef enum {
   MODE_NONE,
@@ -32,7 +37,7 @@ typedef struct mpdhotplug_state
   char *mpd_bin;
   unsigned mpd_port;
   unsigned mpd_timeout;
-  struct mpd_connection *mpd_connection;
+  mpd_Connection *mpd_connection;
 } mpdhotplug_state;
 
 /*----------------------------------------------------------------------
@@ -48,13 +53,15 @@ void logprint(const char *fmt, ...)
     fprintf(stderr, "\n");
 }
 
-void log_mpd_print(mpdhotplug_state *state, const char *message)
+result_t mpd_log_error(mpdhotplug_state *state)
 {
-    switch (mpd_connection_get_error(state->mpd_connection)) {
-        // HMM - for now just a single case? 
-        default:
-            logprint("%s: %s", message, mpd_connection_get_error_message(state->mpd_connection));
-    }
+  if (state->mpd_connection->error) {
+    logprint("mpd error: %s", state->mpd_connection->errorStr);
+    mpd_clearError(state->mpd_connection);
+    return RESULT_FAILURE;
+  } else {
+    return RESULT_SUCCESS;
+  }
 }
 
 /*----------------------------------------------------------------------
@@ -91,38 +98,35 @@ char *path_join_alloc(const char *a, const char *b)
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-bool mpd_connect(mpdhotplug_state *state)
+int mpd_connect(mpdhotplug_state *state)
 {
   int attempts = 5;
   int delay = 1000; // ms
-  enum mpd_error status;
   if (!state->mpd_connection) {
     while (attempts-- > 0) {
-      state->mpd_connection = mpd_connection_new(state->mpd_host,
-						 state->mpd_port,
-						 state->mpd_timeout);
-      status = mpd_connection_get_error(state->mpd_connection);
-      if (status != MPD_ERROR_SUCCESS) {
-	logprint("Connection to %s:%d failed, %d attempts", state->mpd_host, state->mpd_port, attempts);
-	return true;
+      state->mpd_connection = mpd_newConnection(state->mpd_host,
+						state->mpd_port,
+						state->mpd_timeout);
+      if (state->mpd_connection->error) {
+	logprint("Connection to %s:%d failed (%s), %d attempts", 
+		 state->mpd_host,
+		 state->mpd_port,
+		 state->mpd_connection->errorStr,
+		 attempts);
       } else {
-	break;
+	return RESULT_SUCCESS;
       }
       usleep(delay * 1000);  // units are microseconds
     }
-    if (status != MPD_ERROR_SUCCESS) {
-      log_mpd_print(state, "Error connecting");
-    }
-    return false;
-  } else {
-    return true;
+    return RESULT_FAILURE;
   }
+  return RESULT_SUCCESS; // already connected
 }
 
 void mpd_disconnect(mpdhotplug_state *state)
 {
     if (state->mpd_connection) {
-        mpd_connection_free(state->mpd_connection);
+        mpd_closeConnection(state->mpd_connection);
         state->mpd_connection = NULL;
     }
 }
@@ -258,7 +262,7 @@ void mpd_start(mpdhotplug_state *state)
 /*----------------------------------------------------------------------
   
   ----------------------------------------------------------------------*/
-bool mpd_play(mpdhotplug_state *state)
+result_t mpd_play(mpdhotplug_state *state)
 {
   int attempts = 10;
   int delay = 250;
@@ -266,32 +270,23 @@ bool mpd_play(mpdhotplug_state *state)
 
     if (mpd_connect(state)) {
       logprint("Connected");
-      if (mpd_run_update(state->mpd_connection, NULL)) {
-	logprint("updating");
-	if (mpd_run_clear(state->mpd_connection)) {
-	  logprint("cleared");
-	  if (mpd_run_add(state->mpd_connection, "")) {
-	    logprint("added");
-	    if (mpd_run_play(state->mpd_connection)) {
-	      logprint("playing");
-	      return true;
-	    } else {
-	      log_mpd_print(state, "Error playing");
-	    }
-	  } else {
-	    log_mpd_print(state, "Error adding");
-	  }
-	} else {
-	  log_mpd_print(state, "Error clearing");
-	}
-      } else {
-	log_mpd_print(state, "Error updating");
-      }
+      mpd_sendCommandListBegin(state->mpd_connection);
+      mpd_sendUpdateCommand(state->mpd_connection, NULL);
+      mpd_sendClearCommand(state->mpd_connection);
+      mpd_sendAddCommand(state->mpd_connection, "");
+      mpd_sendNextCommand(state->mpd_connection);
+      mpd_sendCommandListEnd(state->mpd_connection);
+      mpd_log_error(state);
+      mpd_finishCommand(state->mpd_connection);
+      result_t result = mpd_log_error(state);
       mpd_disconnect(state);
+      if (result == RESULT_SUCCESS) {
+	return result;
+      }
       ms_sleep(delay);
     }
   }
-  return false;
+  return RESULT_FAILURE;
 }
 
 /*----------------------------------------------------------------------
@@ -310,11 +305,11 @@ pid_t pid_read(char *filename)
     }
     fclose(pidfile);
   }
-  logprint("pid from %s is %d",buf, pid);
+  logprint("pid from %s is %d",filename, pid);
   return pid;
 }
 
-bool pid_kill(pid_t pid, int signal)
+result_t pid_kill(pid_t pid, int signal)
 {
   int attempts = 4;
   int delay = 250; // ms
@@ -322,13 +317,13 @@ bool pid_kill(pid_t pid, int signal)
     logprint("Sending signal %d to process %d",signal,pid);
     if (-1 == kill(pid, signal) && errno == ESRCH) {
       logprint("Process %d has exited",signal,pid);
-      return true;  // gone
+      return RESULT_SUCCESS;  // gone
     }
     logprint("Error %d",errno);
     usleep(delay * 1000);  // units are microseconds      
   }
   logprint("Process %d refused to die",signal,pid);
-  return false;
+  return RESULT_FAILURE;
 }
 
 
@@ -346,7 +341,7 @@ char *mount_name(const char *devname)
   return mount;
 }
 
-bool mount_wait(const char *mount)
+result_t mount_wait(const char *mount)
 {
   int attempts = 10;
   int timeout = 500; // ms
@@ -367,7 +362,7 @@ bool mount_wait(const char *mount)
 	while (*p1 && *p1!=' ') p1++;
 	// printf("%s:%d\n", p0,p1-p0);
 	if (p1-p0==mountlen && !strncmp(mount, p0, mountlen)) {
-	  return true;
+	  return RESULT_SUCCESS;
 	}
       }
       fclose(file);
@@ -376,7 +371,7 @@ bool mount_wait(const char *mount)
     }
     ms_sleep(timeout);
   }
-  return false;
+  return RESULT_FAILURE;
 }
 /*----------------------------------------------------------------------
   
@@ -414,7 +409,7 @@ int main(int argc, char **argv)
     // argv = binname action device
     char *mount = mount_name(argv[2]);
     //mount = "/dev/shm";  // HACK REMOVE ME
-    if (!mount_wait(mount)) {
+    if (RESULT_FAILURE == mount_wait(mount)) {
       error("Timeout waiting for %s to be mounted", mount);
     }
 

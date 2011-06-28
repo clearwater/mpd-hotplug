@@ -45,7 +45,7 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
-am_mpdhotplug_OBJECTS = mpdhotplug.$(OBJEXT)
+am_mpdhotplug_OBJECTS = mpdhotplug.$(OBJEXT) libmpdclient.$(OBJEXT)
 mpdhotplug_OBJECTS = $(am_mpdhotplug_OBJECTS)
 am__DEPENDENCIES_1 =
 mpdhotplug_DEPENDENCIES = $(am__DEPENDENCIES_1)
@@ -66,7 +66,7 @@ ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_CFLAGS = \
         -Wall \
-        $(LIBMPDCLIENT_CFLAGS)
+        $(GLIB_CFLAGS)
 
 AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
@@ -83,14 +83,14 @@ ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
 EXEEXT = @EXEEXT@
+GLIB_CFLAGS = @GLIB_CFLAGS@
+GLIB_LIBS = @GLIB_LIBS@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
-LIBMPDCLIENT_CFLAGS = @LIBMPDCLIENT_CFLAGS@
-LIBMPDCLIENT_LIBS = @LIBMPDCLIENT_LIBS@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LTLIBOBJS = @LTLIBOBJS@
@@ -154,9 +154,9 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-mpdhotplug_SOURCES = mpdhotplug.c
+mpdhotplug_SOURCES = mpdhotplug.c libmpdclient.c
 mpdhotplug_LDADD = \
-        $(LIBMPDCLIENT_LIBS)
+        $(GLIB_LIBS)
 
 all: all-am
 
@@ -239,6 +239,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libmpdclient.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mpdhotplug.Po@am__quote@
 
 .c.o:

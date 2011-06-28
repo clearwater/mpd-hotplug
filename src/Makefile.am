@@ -1,11 +1,11 @@
 bin_PROGRAMS = mpdhotplug
-mpdhotplug_SOURCES = mpdhotplug.c
+mpdhotplug_SOURCES = mpdhotplug.c libmpdclient.c
 
 AM_CFLAGS = \
         -Wall \
-        $(LIBMPDCLIENT_CFLAGS)
+        $(GLIB_CFLAGS)
 
 mpdhotplug_LDADD = \
-        $(LIBMPDCLIENT_LIBS)
+        $(GLIB_LIBS)
 
 

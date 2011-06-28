@@ -560,12 +560,12 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
-AM_CFLAGS
-LIBMPDCLIENT_LIBS
-LIBMPDCLIENT_CFLAGS
+GLIB_LIBS
+GLIB_CFLAGS
 PKG_CONFIG_LIBDIR
 PKG_CONFIG_PATH
 PKG_CONFIG
+AM_CFLAGS
 am__fastdepCC_FALSE
 am__fastdepCC_TRUE
 CCDEPMODE
@@ -659,8 +659,8 @@ CPPFLAGS
 PKG_CONFIG
 PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
-LIBMPDCLIENT_CFLAGS
-LIBMPDCLIENT_LIBS'
+GLIB_CFLAGS
+GLIB_LIBS'
 
 
 # Initialize some variables set by options.
@@ -1293,10 +1293,8 @@ Some influential environment variables:
               directories to add to pkg-config's search path
   PKG_CONFIG_LIBDIR
               path overriding pkg-config's built-in search path
-  LIBMPDCLIENT_CFLAGS
-              C compiler flags for LIBMPDCLIENT, overriding pkg-config
-  LIBMPDCLIENT_LIBS
-              linker flags for LIBMPDCLIENT, overriding pkg-config
+  GLIB_CFLAGS C compiler flags for GLIB, overriding pkg-config
+  GLIB_LIBS   linker flags for GLIB, overriding pkg-config
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -3264,6 +3262,8 @@ ac_config_files="$ac_config_files Makefile src/Makefile"
 
 
 
+
+
 if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
 	if test -n "$ac_tool_prefix"; then
   # Extract the first word of "${ac_tool_prefix}pkg-config", so it can be a program name with args.
@@ -3379,35 +3379,35 @@ $as_echo "no" >&6; }
 fi
 
 pkg_failed=no
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for LIBMPDCLIENT" >&5
-$as_echo_n "checking for LIBMPDCLIENT... " >&6; }
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for GLIB" >&5
+$as_echo_n "checking for GLIB... " >&6; }
 
-if test -n "$LIBMPDCLIENT_CFLAGS"; then
-    pkg_cv_LIBMPDCLIENT_CFLAGS="$LIBMPDCLIENT_CFLAGS"
+if test -n "$GLIB_CFLAGS"; then
+    pkg_cv_GLIB_CFLAGS="$GLIB_CFLAGS"
  elif test -n "$PKG_CONFIG"; then
     if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libmpdclient >= 2.0\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "libmpdclient >= 2.0") 2>&5
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"glib-2.0 >= 2.12 gthread-2.0\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "glib-2.0 >= 2.12 gthread-2.0") 2>&5
   ac_status=$?
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; then
-  pkg_cv_LIBMPDCLIENT_CFLAGS=`$PKG_CONFIG --cflags "libmpdclient >= 2.0" 2>/dev/null`
+  pkg_cv_GLIB_CFLAGS=`$PKG_CONFIG --cflags "glib-2.0 >= 2.12 gthread-2.0" 2>/dev/null`
 else
   pkg_failed=yes
 fi
  else
     pkg_failed=untried
 fi
-if test -n "$LIBMPDCLIENT_LIBS"; then
-    pkg_cv_LIBMPDCLIENT_LIBS="$LIBMPDCLIENT_LIBS"
+if test -n "$GLIB_LIBS"; then
+    pkg_cv_GLIB_LIBS="$GLIB_LIBS"
  elif test -n "$PKG_CONFIG"; then
     if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libmpdclient >= 2.0\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "libmpdclient >= 2.0") 2>&5
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"glib-2.0 >= 2.12 gthread-2.0\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "glib-2.0 >= 2.12 gthread-2.0") 2>&5
   ac_status=$?
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; then
-  pkg_cv_LIBMPDCLIENT_LIBS=`$PKG_CONFIG --libs "libmpdclient >= 2.0" 2>/dev/null`
+  pkg_cv_GLIB_LIBS=`$PKG_CONFIG --libs "glib-2.0 >= 2.12 gthread-2.0" 2>/dev/null`
 else
   pkg_failed=yes
 fi
@@ -3427,27 +3427,25 @@ else
         _pkg_short_errors_supported=no
 fi
         if test $_pkg_short_errors_supported = yes; then
-	        LIBMPDCLIENT_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors "libmpdclient >= 2.0" 2>&1`
+	        GLIB_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors "glib-2.0 >= 2.12 gthread-2.0" 2>&1`
         else
-	        LIBMPDCLIENT_PKG_ERRORS=`$PKG_CONFIG --print-errors "libmpdclient >= 2.0" 2>&1`
+	        GLIB_PKG_ERRORS=`$PKG_CONFIG --print-errors "glib-2.0 >= 2.12 gthread-2.0" 2>&1`
         fi
 	# Put the nasty error message in config.log where it belongs
-	echo "$LIBMPDCLIENT_PKG_ERRORS" >&5
+	echo "$GLIB_PKG_ERRORS" >&5
 
-	as_fn_error $? "libmpdclient2 is required" "$LINENO" 5
+	as_fn_error $? "GLib 2.12 is required" "$LINENO" 5
 elif test $pkg_failed = untried; then
      	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
 $as_echo "no" >&6; }
-	as_fn_error $? "libmpdclient2 is required" "$LINENO" 5
+	as_fn_error $? "GLib 2.12 is required" "$LINENO" 5
 else
-	LIBMPDCLIENT_CFLAGS=$pkg_cv_LIBMPDCLIENT_CFLAGS
-	LIBMPDCLIENT_LIBS=$pkg_cv_LIBMPDCLIENT_LIBS
+	GLIB_CFLAGS=$pkg_cv_GLIB_CFLAGS
+	GLIB_LIBS=$pkg_cv_GLIB_LIBS
         { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
 
 fi
-
-
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
